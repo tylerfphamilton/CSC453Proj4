@@ -163,9 +163,25 @@ static void print_usage(const char *progname) {
  * Examples: "100c" -> 100, "4k" -> 4096, "2M" -> 2097152, "512" -> 512
  */
 static off_t parse_size(const char *arg) {
-    (void)arg;
     /* TODO: Your implementation here */
-    return 0;
+
+    if (arg == NULL){
+        // some message
+    }
+
+    // converting the string to a number
+    char* end_ptr;
+    off_t res = strtoll(arg, &end_ptr, 10);
+
+    // checking to see if it is a k or M
+    if (*end_ptr == 'k'){
+        res *= 1024;
+    }
+    else if (*end_ptr == 'M'){
+        res *= 1048576;
+    }
+
+    return res;
 }
 
 /*
@@ -233,6 +249,11 @@ int main(int argc, char *argv[]) {
     char **paths = parse_args(argc, argv, &npaths);
 
     bfs_traverse(paths, npaths);
+
+    // // debugging parse_size()
+    // off_t num = parse_size(argv[1]);
+    // printf("num of arguments: %d: \n", argc);
+    // printf("This is the size before: %s and after: %ld\n", argv[1], num);
 
     free(paths);
     free(g_filters);
