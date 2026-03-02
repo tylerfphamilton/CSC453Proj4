@@ -89,6 +89,16 @@ static dev_t g_start_dev = 0;
 static time_t g_now;
 
 /* ------------------------------------------------------------------ */
+/* Addded Functionality                                                 */
+/* ------------------------------------------------------------------ */
+
+typedef enum {
+    OPTIONS,
+    PATHS,
+    FILTERS
+} parser_phase;
+
+/* ------------------------------------------------------------------ */
 /*  Filter matching                                                    */
 /* ------------------------------------------------------------------ */
 
@@ -173,6 +183,13 @@ static off_t parse_size(const char *arg) {
     char* end_ptr;
     off_t res = strtoll(arg, &end_ptr, 10);
 
+    // TODO: check for error here
+    if (*end_ptr != '\0' && *end_ptr != 'c' && *end_ptr != 'k' && *end_ptr != 'M'){
+        printf("Incorrect usage for parse size argument\n");
+        return -1;
+        // exit(1);
+    }
+
     // checking to see if it is a k or M
     if (*end_ptr == 'k'){
         res *= 1024;
@@ -180,6 +197,7 @@ static off_t parse_size(const char *arg) {
     else if (*end_ptr == 'M'){
         res *= 1048576;
     }
+
 
     return res;
 }
@@ -198,12 +216,289 @@ static off_t parse_size(const char *arg) {
  * Exit with an error for unknown options or missing filter arguments.
  */
 static char **parse_args(int argc, char *argv[], int *npaths) {
-    (void)argc;
-    (void)argv;
-    (void)npaths;
-    /* TODO: Your implementation here */
-    return NULL;
+
+    bool beginning_path = true;
+    int paths_start_idx = 0;
+    int paths_count = 0;
+    bool default_path = false;
+
+    bool beginning_filter = true;
+    int filters_start_idx = 0;
+    bool size_flag = false;
+
+    parser_phase phase = OPTIONS;
+
+    int i = 1;
+    while (i < argc){
+
+        switch(phase){
+
+            // parsing the options to see if the -L or -xdev flag is being used
+            case OPTIONS:
+            
+                if (argv[i][0] == '-'){
+
+                    if (strcmp(argv[i],"-L") == 0){
+                        g_follow_links = true;
+                    }
+                    else if (strcmp(argv[i],"-xdev") == 0){
+                        g_xdev = true;
+                    }
+                    else {
+                        // printf("Incorrect usage: %s\n", argv[i]);
+                        if (strcmp(argv[i], "--help") == 0){
+                            print_usage(argv[0]);
+                            exit(0);
+                        }
+                        // need to exit if it's not valid
+                        else if (strcmp(argv[i], "-name") == 0 || strcmp(argv[i], "-type") == 0 || strcmp(argv[i], "-mtime") == 0 || strcmp(argv[i], "-size") == 0 || strcmp(argv[i], "-perm") == 0){
+                            if (paths_count == 0){
+                                paths_count = 1;
+                                default_path = true;
+                            }
+                            phase = FILTERS;
+                            i--;
+                        }
+                        else {
+                            // printf("Incorrect usage: %s\n: ", argv[i]);
+                            fprintf(stderr, "Incorrect usage: %s\n: ", argv[i]);
+                            exit(1);
+                        }
+                    }
+                }
+                else{
+                    phase = PATHS;
+                    i--;
+                }
+                break;
+
+            case PATHS:
+
+                if (argv[i][0] != '-'){
+
+                    if (beginning_path){
+                        paths_start_idx = i;
+                        beginning_path = false;
+                    }
+
+                    paths_count++;
+                }
+                else{
+
+                    // I think I need to move this, come back to this later
+                    // if (paths_count == 0){
+                    //     paths_count = 1;
+                    //     default_path = true;
+                    // }
+                    phase = FILTERS;
+                    i--;
+                }
+                break;
+            
+            case FILTERS:
+
+                if (beginning_filter){
+                    filters_start_idx = i;
+                    beginning_filter = false;
+                }
+                
+                // TODO: need to check if the argument exists in order to increment
+                if (strcmp(argv[i], "-name") == 0 && (i+1 < argc)){
+
+                    if (argv[i+1][0] != '-'){
+                        g_nfilters++;
+                        // printf("incrementing filters count in -name\n");
+                    }
+                    else{
+                        fprintf(stderr, "Incorrect filter usage: %s and %s (back to back)\n", argv[i], argv[i+1]);
+                        exit(1);
+                    }
+                }
+                else if (strcmp(argv[i], "-type") == 0 && (i+1 < argc)){
+
+                    if (argv[i+1][0] != '-'){
+                        g_nfilters++;
+                        // printf("incrementing filters count in type\n");
+
+                    }
+                    else{
+                        fprintf(stderr, "Incorrect filter usage: %s and %s (back to back)\n", argv[i], argv[i+1]);
+                        exit(1);
+                    }
+                }
+                else if (strcmp(argv[i], "-mtime") == 0 && (i+1 < argc)){
+                    
+                    if (argv[i+1][0] != '-'){
+                        g_nfilters++;
+                        // printf("incrementing filters count in -mtime\n");
+
+                    }
+                    else{
+                        fprintf(stderr, "Incorrect filter usage: %s and %s (back to back)\n", argv[i], argv[i+1]);
+                        exit(1);
+                    }
+                }
+                else if (strcmp(argv[i], "-size") == 0 && (i+1 < argc)){
+
+                    // TODO: make a comment here
+                    if (argv[i+1][0] == '-'){
+
+                        // now we know the next has to be a number, so I am checking the ascii value
+                        int ascii_value = (int) argv[i+1][1];
+                        if (ascii_value >= 48 && ascii_value < 58){
+                            size_flag = true;
+                        }
+
+                        if (!size_flag){                        
+                            fprintf(stderr, "Incorrect filter usage: %s and %s (back to back)\n", argv[i], argv[i+1]);
+                            exit(1);
+                        }
+                        else {
+                            // printf("incrementing filters count in -size\n");
+                            g_nfilters++;
+                        }
+                    }
+                    else{
+                        g_nfilters++;
+                    }
+                }
+                else if (strcmp(argv[i], "-perm") == 0 && (i+1 < argc)){
+                    
+                    if (argv[i+1][0] != '-'){
+                        g_nfilters++;
+                        // printf("incrementing filters count in -perm\n");
+
+                    }
+                    else{
+                        fprintf(stderr, "Incorrect filter usage: %s and %s (back to back)\n: ", argv[i], argv[i+1]);
+                        exit(1);
+                    }
+                }
+                else if (argv[i][0] == '-' && !size_flag){
+                    fprintf(stderr, "Incorrect filter usage for: %s\n: ", argv[i]);
+                    exit(1);
+                }
+                break;
+        }
+        i++;
+    }
+    
+    char **paths = malloc(paths_count * sizeof(char*));
+    if (paths == NULL){
+        perror("There was an error with malloc when allocating for paths");
+        exit(1);
+    }
+
+    // if the path is not specified
+    *npaths = paths_count;
+    if (default_path){
+        paths[0]= ".";
+    }
+    else {
+        for (int p = 0; p < paths_count; p++){
+            paths[p] = argv[paths_start_idx + p];
+        }
+    }
+
+    // still need code for filter here
+    if (g_nfilters != 0){
+
+        g_filters = malloc(g_nfilters * sizeof(filter_t));
+        if (g_filters == NULL){
+            perror("There was an error mallocing for g_filters");
+            free(paths);
+            exit(1);
+        }
+    }
+
+    int filter_idx = 0;
+    while (filter_idx < g_nfilters){
+
+        // stores the first instance of 
+        filter_t filter_entry;
+        char* kind = argv[filters_start_idx + (2*filter_idx)];
+        if (strcmp(kind, "-name") == 0){
+            filter_entry.kind = FILTER_NAME;
+            filter_entry.filter.pattern = argv[filters_start_idx + (2*filter_idx) + 1];
+            printf("The pattern is: %s\n", filter_entry.filter.pattern);
+        }
+        else if (strcmp(kind, "-type") == 0){
+            filter_entry.kind = FILTER_TYPE;
+            filter_entry.filter.type_char = argv[filters_start_idx + (2*filter_idx) + 1][0];
+            printf("The type char is: %c\n", filter_entry.filter.type_char);
+        }
+        else if (strcmp(kind, "-mtime") == 0){
+            filter_entry.kind = FILTER_MTIME;
+            char* endptr;
+            long mtime_days = strtol(argv[filters_start_idx + (2*filter_idx) + 1], &endptr, 10);
+            if (*endptr != '\0'){
+                perror("endptr is not pointing at '\0'\n");
+                free(g_filters);
+                free(paths);
+                exit(1);
+            }
+            filter_entry.filter.mtime_days = mtime_days;
+            printf("The mtime days is: %ld\n", mtime_days);
+        }
+        else if (strcmp(kind, "-size") == 0){
+            filter_entry.kind = FILTER_SIZE;
+            char* whole_num = argv[filters_start_idx + (2*filter_idx) + 1];
+            int num_len = strlen(whole_num);
+            char num[num_len];
+            
+            char cmp = argv[filters_start_idx + (2*filter_idx) + 1][0];
+            if (cmp == '+'){
+                filter_entry.filter.size.size_cmp = SIZE_CMP_GREATER;
+                memcpy(num, whole_num + 1, num_len - 1);
+                num[num_len-1] = '\0';
+
+                // TODO: need to have a checker for parse_size()
+                filter_entry.filter.size.size_bytes = parse_size(num);
+                printf("It is greater than and ");
+            }
+            else if (cmp == '-'){
+                filter_entry.filter.size.size_cmp = SIZE_CMP_LESS;
+                memcpy(num, whole_num + 1, num_len - 1);
+                num[num_len-1] = '\0';
+                filter_entry.filter.size.size_bytes = parse_size(num);
+                printf("It is less than and ");
+
+            }
+            else {
+                filter_entry.filter.size.size_cmp = SIZE_CMP_EXACT;
+                filter_entry.filter.size.size_bytes = parse_size(whole_num);
+                printf("It is same than and ");
+            }
+            printf("the size bytes is %ld\n", filter_entry.filter.size.size_bytes);
+        }
+        else if (strcmp(kind, "-perm") == 0){
+            char* perm_number = argv[filters_start_idx + (2*filter_idx) + 1];
+            if (strlen(perm_number) > 4){
+                printf("Incorrect usage of perm number, max 4 digits: %s\n", perm_number);
+                // free(paths);
+                // free(g_filters);
+                return NULL;
+            }
+            filter_entry.kind = FILTER_PERM;
+            char* endptr;
+            long perm_num = strtol(perm_number, &endptr, 8);
+            if (*endptr != '\0'){
+                free(paths);
+                free(g_filters);
+                perror("endptr is not pointing at '\0'\n for perm");
+                exit(1);
+            }
+            filter_entry.filter.perm_mode = (mode_t) perm_num;     
+            printf("the permission is: %d\n", filter_entry.filter.perm_mode);       
+        }
+
+        g_filters[filter_idx] = filter_entry;
+        filter_idx++;
+    }
+
+    return paths;
 }
+
 
 /* ------------------------------------------------------------------ */
 /*  BFS traversal                                                      */
@@ -248,7 +543,23 @@ int main(int argc, char *argv[]) {
     int npaths;
     char **paths = parse_args(argc, argv, &npaths);
 
-    bfs_traverse(paths, npaths);
+    if (paths == NULL){
+        // some error
+    }
+    
+    // for (int i = 0; i < npaths; i++){
+
+    //     printf("here is the path: %s and here is the npath count: %d\n", paths[i], npaths);
+    // }
+
+    // for (int j = 0; j < g_nfilters; j++){
+
+    //     printf("here is the name: %s and here is the g_nfilters count: %d\n", g_filters[j].filter.pattern, g_nfilters);
+    // }
+    printf("the number of filters is %d\n", g_nfilters);
+
+
+    // bfs_traverse(paths, npaths);
 
     // // debugging parse_size()
     // off_t num = parse_size(argv[1]);
