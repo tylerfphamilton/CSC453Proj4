@@ -31,7 +31,9 @@
 #include <time.h>
 #include <unistd.h>
 
+// #include <fcntl.h>
 #include "queue.h"
+#include <limits.h>
 
 /* ------------------------------------------------------------------ */
 /*  Filter definitions                                                 */
@@ -113,11 +115,87 @@ typedef enum {
  */
 static bool filter_matches(const filter_t *f, const char *path,
                            const struct stat *sb) {
-    (void)f;
-    (void)path;
-    (void)sb;
     /* TODO: Your implementation here */
-    return false;
+
+    bool res = false;
+
+    switch (f->kind){
+
+        case FILTER_NAME:
+        {
+            // uses fnmatch
+            const char* last_path = strrchr(path, '/');
+
+            if (last_path == NULL){
+                last_path = (char*) path;
+            }
+
+            // need to increment because it is up until the /
+            last_path++;
+            // printf("the path is: %s\n", last_path);
+
+            if (fnmatch(f->filter.pattern, last_path, 0) == 0){
+                res = true;
+            }
+            break;
+        }
+
+        case FILTER_TYPE:
+        {           
+            if (f->filter.type_char == 'f' && S_ISREG(sb->st_mode)){
+                res = true;
+            }
+            else if (f->filter.type_char == 'd' && S_ISDIR(sb->st_mode)){
+                res = true;
+            }
+            else if (f->filter.type_char == 'l' && S_ISLNK(sb->st_mode)){
+                res = true;
+            }
+            break;
+        }
+
+        case FILTER_MTIME:
+        {
+            // have to use g_now;
+            double time_diff = difftime(g_now, sb->st_mtim.tv_sec);
+            time_diff /= 86400;
+            // printf("the time diff is %f\n", time_diff);
+
+            // need to handle logic correctly now:
+            int time_days = (int) time_diff;
+            if (time_days <= f->filter.mtime_days){
+                res = true;
+            }
+            break;
+        }
+
+        case FILTER_SIZE:
+        {
+            off_t f_size = f->filter.size.size_bytes;
+            size_cmp_t f_cmp = f->filter.size.size_cmp;
+
+            if (f_cmp == SIZE_CMP_GREATER && sb->st_size > f_size){
+                res = true;       
+            }
+            else if (f_cmp == SIZE_CMP_EXACT && sb->st_size == f_size){
+                res = true;
+            }
+            else if (f_cmp == SIZE_CMP_LESS && sb->st_size < f_size){
+                res = true;
+            }
+            break;
+        }        
+        case FILTER_PERM:
+        {
+            // printf("the perm is in filter %o and in sb->st_mode: %o\n", f->filter.perm_mode, (sb->st_mode & 0777));
+
+            if (f->filter.perm_mode == (sb->st_mode & 0777)){
+                res = true;
+            }
+            break;
+        }
+    }
+    return res;
 }
 
 /* Check if ALL filters match (AND semantics).
@@ -177,6 +255,8 @@ static off_t parse_size(const char *arg) {
 
     if (arg == NULL){
         // some message
+        printf("The arg is NULL in parse_size\n");
+        return -1;
     }
 
     // converting the string to a number
@@ -187,7 +267,6 @@ static off_t parse_size(const char *arg) {
     if (*end_ptr != '\0' && *end_ptr != 'c' && *end_ptr != 'k' && *end_ptr != 'M'){
         printf("Incorrect usage for parse size argument\n");
         return -1;
-        // exit(1);
     }
 
     // checking to see if it is a k or M
@@ -420,12 +499,12 @@ static char **parse_args(int argc, char *argv[], int *npaths) {
         if (strcmp(kind, "-name") == 0){
             filter_entry.kind = FILTER_NAME;
             filter_entry.filter.pattern = argv[filters_start_idx + (2*filter_idx) + 1];
-            printf("The pattern is: %s\n", filter_entry.filter.pattern);
+            // printf("The pattern is: %s\n", filter_entry.filter.pattern);
         }
         else if (strcmp(kind, "-type") == 0){
             filter_entry.kind = FILTER_TYPE;
             filter_entry.filter.type_char = argv[filters_start_idx + (2*filter_idx) + 1][0];
-            printf("The type char is: %c\n", filter_entry.filter.type_char);
+            // printf("The type char is: %c\n", filter_entry.filter.type_char);
         }
         else if (strcmp(kind, "-mtime") == 0){
             filter_entry.kind = FILTER_MTIME;
@@ -438,7 +517,7 @@ static char **parse_args(int argc, char *argv[], int *npaths) {
                 exit(1);
             }
             filter_entry.filter.mtime_days = mtime_days;
-            printf("The mtime days is: %ld\n", mtime_days);
+            // printf("The mtime days is: %ld\n", mtime_days);
         }
         else if (strcmp(kind, "-size") == 0){
             filter_entry.kind = FILTER_SIZE;
@@ -454,22 +533,22 @@ static char **parse_args(int argc, char *argv[], int *npaths) {
 
                 // TODO: need to have a checker for parse_size()
                 filter_entry.filter.size.size_bytes = parse_size(num);
-                printf("It is greater than and ");
+                // printf("It is greater than and ");
             }
             else if (cmp == '-'){
                 filter_entry.filter.size.size_cmp = SIZE_CMP_LESS;
                 memcpy(num, whole_num + 1, num_len - 1);
                 num[num_len-1] = '\0';
                 filter_entry.filter.size.size_bytes = parse_size(num);
-                printf("It is less than and ");
+                // printf("It is less than and ");
 
             }
             else {
                 filter_entry.filter.size.size_cmp = SIZE_CMP_EXACT;
                 filter_entry.filter.size.size_bytes = parse_size(whole_num);
-                printf("It is same than and ");
+                // printf("It is same than and ");
             }
-            printf("the size bytes is %ld\n", filter_entry.filter.size.size_bytes);
+            // printf("the size bytes is %ld\n", filter_entry.filter.size.size_bytes);
         }
         else if (strcmp(kind, "-perm") == 0){
             char* perm_number = argv[filters_start_idx + (2*filter_idx) + 1];
@@ -489,7 +568,7 @@ static char **parse_args(int argc, char *argv[], int *npaths) {
                 exit(1);
             }
             filter_entry.filter.perm_mode = (mode_t) perm_num;     
-            printf("the permission is: %d\n", filter_entry.filter.perm_mode);       
+            // printf("the permission is: %d\n", filter_entry.filter.perm_mode);       
         }
 
         g_filters[filter_idx] = filter_entry;
@@ -503,6 +582,65 @@ static char **parse_args(int argc, char *argv[], int *npaths) {
 /* ------------------------------------------------------------------ */
 /*  BFS traversal                                                      */
 /* ------------------------------------------------------------------ */
+
+// helper for ordering the names (for qsort)
+int compare(const void* name1, const void* name2){
+
+    const char* name1_ = *(const char**) name1;
+    const char* name2_ = *(const char**) name2;
+
+    return strcmp(name1_,name2_);
+}
+
+
+// helper function for actually reordering
+char** sort_order(char* dir_name, int* path_count){
+
+    // maybe need a NULL check for dir?
+    int capacity = 8;
+    DIR* dir;
+    struct dirent *dp;
+
+    // TODO: print the directory that can't be opened
+    if (((dir = opendir(dir_name)) == NULL)){
+        perror("Cannot open directory");
+        return NULL;
+    }
+
+    // was thinking that a queue could work, but it doesn't work with 
+    char** path_array = malloc(capacity * sizeof(char*));
+    if (path_array == NULL){
+        perror("there was an error mallocing in the helper function");
+        return NULL;
+    }
+
+    while ((dp = readdir(dir)) != NULL){
+
+        if ((strcmp(dp->d_name,".") != 0)  && (strcmp(dp->d_name,"..") != 0)){
+
+            // need to realloc()
+            if (*path_count >= (capacity)){
+                capacity *= 2;
+                char** temp_array = realloc(path_array, capacity * sizeof(char*));
+                if (temp_array == NULL){
+                    // TODO: throw some error
+                    perror("There was an error reallocing");
+                    free(path_array);
+                    return NULL;
+                }
+                path_array = temp_array;
+            }
+             
+            path_array[*path_count] = strdup(dp->d_name);
+            (*path_count)++;
+        }
+    }
+
+    qsort(path_array, *path_count, sizeof(char*), compare);
+    closedir(dir);
+    return path_array;
+}
+
 
 /*
  * TODO 4: Implement this function.
@@ -528,9 +666,70 @@ static char **parse_args(int argc, char *argv[], int *npaths) {
  * The provided queue library (queue.h) implements a generic FIFO queue.
  */
 static void bfs_traverse(char **start_paths, int npaths) {
-    (void)start_paths;
-    (void)npaths;
     /* TODO: Your implementation here */
+
+    // NOTE: stat follows a symbolic link while stat does not
+    queue_t q;
+    queue_init(&q);
+
+    int i = 0;
+    while (i < npaths){
+
+        // enqueue the starting directories
+        char* start_path = strdup(start_paths[i]);
+        int res_q = queue_enqueue(&q,start_path);
+        if (res_q == -1){
+            printf("error\n");
+            queue_destroy(&q);
+            exit(1);
+        }
+
+        i++;
+    }
+
+    while (!queue_is_empty(&q)){
+
+        char* dir_name = (char*) queue_dequeue(&q);
+
+        int path_count = 0;
+        char** ordered_paths = sort_order(dir_name, &path_count);
+        if (ordered_paths == NULL){
+            //TODO: print some error
+            queue_destroy(&q);
+        }
+
+        // need to loop through and print
+        for (int i = 0; i < path_count; i++){
+
+            // constructing the full path
+            char buff[PATH_MAX];
+            snprintf(buff, sizeof(buff), "%s/%s", dir_name, ordered_paths[i]);
+            char* path_dup = strdup(buff);              
+
+            struct stat sb;
+            if (lstat(path_dup, &sb) == -1) {
+                perror("lstat");
+                exit(EXIT_FAILURE);
+            }
+
+            if (matches_all_filters(path_dup, &sb)){
+                printf("%s\n", path_dup);
+            }
+
+
+            if (S_ISDIR(sb.st_mode)){
+                queue_enqueue(&q, path_dup);
+            }
+            else{
+                free(path_dup);
+            }
+            free(ordered_paths[i]);
+        }
+
+        free(dir_name);
+        free(ordered_paths);
+    }
+    queue_destroy(&q);
 }
 
 /* ------------------------------------------------------------------ */
@@ -541,11 +740,11 @@ int main(int argc, char *argv[]) {
     g_now = time(NULL);
 
     int npaths;
-    char **paths = parse_args(argc, argv, &npaths);
+    // char **paths = parse_args(argc, argv, &npaths);
 
-    if (paths == NULL){
-        // some error
-    }
+    // if (paths == NULL){
+    //     // some error
+    // }
     
     // for (int i = 0; i < npaths; i++){
 
@@ -556,10 +755,38 @@ int main(int argc, char *argv[]) {
 
     //     printf("here is the name: %s and here is the g_nfilters count: %d\n", g_filters[j].filter.pattern, g_nfilters);
     // }
-    printf("the number of filters is %d\n", g_nfilters);
+    // printf("the number of filters is %d\n", g_nfilters);
 
 
-    // bfs_traverse(paths, npaths);
+    // filter_t filter = {0};
+    // filter.kind = FILTER_NAME;
+    // filter.filter.pattern = "*.c";
+    
+    // filter.filter.size.size_bytes = parse_size("1232");
+    // filter.filter.size.size_cmp = SIZE_CMP_LESS;
+    // filter.kind = FILTER_SIZE;
+
+    // char* perm_number = "0644"; 
+    // char* endptr;
+
+    // long perm_num = strtol(perm_number, &endptr, 8);
+    // filter.filter.perm_mode = perm_num;
+    // filter.kind = FILTER_PERM;
+    // struct stat sb = {0};
+    // char* file = "testfile.txt";
+    char** paths = parse_args(argc, argv, &npaths);
+
+    bfs_traverse(paths, npaths);
+
+    // printf("the path is %s\n", paths[0]);
+    // g_nfilters = 5;
+    // lstat(paths[0],&sb);
+    // printf("Info from lstat:\n\ndir: %d (1 is yes and 0 is no)\nThe time is %ld\nThe size is %ld\nThe perm is %o\n\n", S_ISDIR((&sb)->st_mode), (&sb)->st_mtim.tv_sec, (&sb)->st_size, ((&sb)->st_mode & 0777));
+    // bool res = matches_all_filters(paths[0], &sb);
+
+    // if (res == true){
+    //     printf("IT WORKS\n");
+    // }
 
     // // debugging parse_size()
     // off_t num = parse_size(argv[1]);
