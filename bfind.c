@@ -100,6 +100,13 @@ typedef enum {
     FILTERS
 } parser_phase;
 
+typedef struct {
+    char* path;
+    dev_t start_dev;
+} queue_entry_t;
+
+volatile int malloc_failure = 0;
+
 /* ------------------------------------------------------------------ */
 /*  Filter matching                                                    */
 /* ------------------------------------------------------------------ */
@@ -131,6 +138,8 @@ static bool filter_matches(const filter_t *f, const char *path,
             }
 
             // need to increment because it is up until the /
+            // TDO: might need to fix later
+            // this is the output for .git: ./.git
             last_path++;
             // printf("the path is: %s\n", last_path);
 
@@ -363,12 +372,6 @@ static char **parse_args(int argc, char *argv[], int *npaths) {
                     paths_count++;
                 }
                 else{
-
-                    // I think I need to move this, come back to this later
-                    // if (paths_count == 0){
-                    //     paths_count = 1;
-                    //     default_path = true;
-                    // }
                     phase = FILTERS;
                     i--;
                 }
@@ -462,6 +465,11 @@ static char **parse_args(int argc, char *argv[], int *npaths) {
         i++;
     }
     
+    if (paths_count == 0){
+        paths_count = 1;
+        default_path = true;
+    }
+
     char **paths = malloc(paths_count * sizeof(char*));
     if (paths == NULL){
         perror("There was an error with malloc when allocating for paths");
@@ -601,9 +609,8 @@ char** sort_order(char* dir_name, int* path_count){
     DIR* dir;
     struct dirent *dp;
 
-    // TODO: print the directory that can't be opened
     if (((dir = opendir(dir_name)) == NULL)){
-        perror("Cannot open directory");
+        fprintf(stderr, "bfind: cannot open '%s':", dir_name);
         return NULL;
     }
 
@@ -611,6 +618,7 @@ char** sort_order(char* dir_name, int* path_count){
     char** path_array = malloc(capacity * sizeof(char*));
     if (path_array == NULL){
         perror("there was an error mallocing in the helper function");
+        malloc_failure = 1;
         return NULL;
     }
 
@@ -623,8 +631,8 @@ char** sort_order(char* dir_name, int* path_count){
                 capacity *= 2;
                 char** temp_array = realloc(path_array, capacity * sizeof(char*));
                 if (temp_array == NULL){
-                    // TODO: throw some error
                     perror("There was an error reallocing");
+                    malloc_failure = 1;
                     free(path_array);
                     return NULL;
                 }
@@ -636,6 +644,7 @@ char** sort_order(char* dir_name, int* path_count){
         }
     }
 
+    // am I allowed to use qsort()?
     qsort(path_array, *path_count, sizeof(char*), compare);
     closedir(dir);
     return path_array;
@@ -671,31 +680,83 @@ static void bfs_traverse(char **start_paths, int npaths) {
     // NOTE: stat follows a symbolic link while stat does not
     queue_t q;
     queue_init(&q);
-
+    
     int i = 0;
     while (i < npaths){
 
         // enqueue the starting directories
         char* start_path = strdup(start_paths[i]);
-        int res_q = queue_enqueue(&q,start_path);
-        if (res_q == -1){
-            printf("error\n");
+
+        struct stat sb;
+        if (g_follow_links){
+            if (stat(start_path, &sb) == -1) {
+                perror("stat");
+                free(start_path);
+                continue;
+            }
+        }
+        else{
+            if (lstat(start_path, &sb) == -1) {
+                perror("lstat");
+                free(start_path);
+                continue;
+            }
+        }
+
+
+        // if it matches the filters, print it
+        if (matches_all_filters(start_path, &sb)){
+            printf("%s\n", start_path);
+        }
+        
+        // queue entry info needed
+        queue_entry_t* start_entry = malloc(sizeof(queue_entry_t));
+        if (start_entry == NULL){
+            // TODO: check for NULL
+            free(start_path);
             queue_destroy(&q);
             exit(1);
         }
 
+        start_entry->path = start_path;
+        start_entry->start_dev = sb.st_dev;
+
+        // changed the logic to enqueue a queue entry
+        // TODO: might need to free here
+        int res_q = queue_enqueue(&q,start_entry);
+        if (res_q == -1){
+            printf("error\n");
+            queue_destroy(&q);
+            free(start_path);
+            free(start_entry->path);
+            free(start_entry);
+            exit(1);
+        }
         i++;
     }
 
+
     while (!queue_is_empty(&q)){
 
-        char* dir_name = (char*) queue_dequeue(&q);
+        queue_entry_t* curr_entry = (queue_entry_t*) queue_dequeue(&q);
 
         int path_count = 0;
-        char** ordered_paths = sort_order(dir_name, &path_count);
+        char** ordered_paths = sort_order(curr_entry->path, &path_count);
         if (ordered_paths == NULL){
-            //TODO: print some error
-            queue_destroy(&q);
+
+            if (malloc_failure == 1){
+                queue_destroy(&q);
+                free(curr_entry->path);
+                free(curr_entry);
+                malloc_failure = 0;
+                exit(1);
+            }
+            else{
+                // the dir_name failed to open, already printing the error message
+                free(curr_entry->path);
+                free(curr_entry);
+                continue;
+            }
         }
 
         // need to loop through and print
@@ -703,30 +764,90 @@ static void bfs_traverse(char **start_paths, int npaths) {
 
             // constructing the full path
             char buff[PATH_MAX];
-            snprintf(buff, sizeof(buff), "%s/%s", dir_name, ordered_paths[i]);
-            char* path_dup = strdup(buff);              
+            if (curr_entry->path[strlen(curr_entry->path) - 1] == '/'){
+                snprintf(buff, sizeof(buff), "%s%s", curr_entry->path, ordered_paths[i]);
+            }
+            else{
+                snprintf(buff, sizeof(buff), "%s/%s", curr_entry->path, ordered_paths[i]);
+            }
+            char* path_dup = strdup(buff); 
+            if (path_dup == NULL){
+                queue_destroy(&q);
+                free(curr_entry->path);
+                free(curr_entry);
+                for (int j = 0; j < path_count; j++){
+                    free(ordered_paths[j]);
+                }
+                perror("There was an error on strdup");
+                exit(1);
+            }             
 
             struct stat sb;
-            if (lstat(path_dup, &sb) == -1) {
-                perror("lstat");
-                exit(EXIT_FAILURE);
+            if (g_follow_links){
+                if (stat(path_dup, &sb) == -1) {
+                    perror("stat");
+                    free(path_dup);
+                    continue;
+                }
+            }
+            else{
+                if (lstat(path_dup, &sb) == -1) {
+                    perror("lstat");
+                    free(path_dup);
+                    continue;
+                }
             }
 
+            // printing only the paths that match the filters
             if (matches_all_filters(path_dup, &sb)){
                 printf("%s\n", path_dup);
             }
 
-
+            // for enqueuing 
             if (S_ISDIR(sb.st_mode)){
-                queue_enqueue(&q, path_dup);
+
+                if (g_xdev){
+
+                    if (curr_entry->start_dev == sb.st_dev){
+                        queue_entry_t *q_entry = malloc(sizeof(queue_entry_t));
+                        if (q_entry == NULL){
+                            queue_destroy(&q);
+                            free(curr_entry->path);
+                            free(curr_entry);
+                            free(path_dup);
+                            free(ordered_paths);
+                            perror("There was an error mallocing q_entry for gdev case");
+                            exit(1);
+                        }
+                        q_entry->path = path_dup;
+                        q_entry->start_dev = curr_entry->start_dev;
+                        queue_enqueue(&q, q_entry);
+                    }
+                }
+                else{
+                    queue_entry_t* q_entry = malloc(sizeof(queue_entry_t));
+                    if (q_entry == NULL){
+                        queue_destroy(&q);
+                        free(curr_entry->path);
+                        free(curr_entry);
+                        free(path_dup);
+                        free(ordered_paths);
+                        perror("There was an error mallocing q_entry for non-gdev case");
+                        exit(1);
+                    }
+                    q_entry->path = path_dup;
+                    q_entry->start_dev = curr_entry->start_dev;
+                    queue_enqueue(&q, q_entry);
+                }
             }
             else{
                 free(path_dup);
             }
             free(ordered_paths[i]);
+            ordered_paths[i] = NULL;
         }
-
-        free(dir_name);
+        free(curr_entry ->path);
+        free(curr_entry);       
         free(ordered_paths);
     }
     queue_destroy(&q);
@@ -740,59 +861,10 @@ int main(int argc, char *argv[]) {
     g_now = time(NULL);
 
     int npaths;
-    // char **paths = parse_args(argc, argv, &npaths);
-
-    // if (paths == NULL){
-    //     // some error
-    // }
-    
-    // for (int i = 0; i < npaths; i++){
-
-    //     printf("here is the path: %s and here is the npath count: %d\n", paths[i], npaths);
-    // }
-
-    // for (int j = 0; j < g_nfilters; j++){
-
-    //     printf("here is the name: %s and here is the g_nfilters count: %d\n", g_filters[j].filter.pattern, g_nfilters);
-    // }
-    // printf("the number of filters is %d\n", g_nfilters);
-
-
-    // filter_t filter = {0};
-    // filter.kind = FILTER_NAME;
-    // filter.filter.pattern = "*.c";
-    
-    // filter.filter.size.size_bytes = parse_size("1232");
-    // filter.filter.size.size_cmp = SIZE_CMP_LESS;
-    // filter.kind = FILTER_SIZE;
-
-    // char* perm_number = "0644"; 
-    // char* endptr;
-
-    // long perm_num = strtol(perm_number, &endptr, 8);
-    // filter.filter.perm_mode = perm_num;
-    // filter.kind = FILTER_PERM;
-    // struct stat sb = {0};
-    // char* file = "testfile.txt";
     char** paths = parse_args(argc, argv, &npaths);
 
     bfs_traverse(paths, npaths);
-
-    // printf("the path is %s\n", paths[0]);
-    // g_nfilters = 5;
-    // lstat(paths[0],&sb);
-    // printf("Info from lstat:\n\ndir: %d (1 is yes and 0 is no)\nThe time is %ld\nThe size is %ld\nThe perm is %o\n\n", S_ISDIR((&sb)->st_mode), (&sb)->st_mtim.tv_sec, (&sb)->st_size, ((&sb)->st_mode & 0777));
-    // bool res = matches_all_filters(paths[0], &sb);
-
-    // if (res == true){
-    //     printf("IT WORKS\n");
-    // }
-
-    // // debugging parse_size()
-    // off_t num = parse_size(argv[1]);
-    // printf("num of arguments: %d: \n", argc);
-    // printf("This is the size before: %s and after: %ld\n", argv[1], num);
-
+    
     free(paths);
     free(g_filters);
     return 0;
