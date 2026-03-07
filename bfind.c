@@ -112,7 +112,7 @@ volatile int malloc_failure = 0;
 /* ------------------------------------------------------------------ */
 
 /*
- * TODO 1: Implement this function.
+ * Implement this function.
  *
  * Return true if the single filter 'f' matches the file at 'path' with
  * metadata 'sb'. Handle each filter_kind_t in a switch statement.
@@ -122,7 +122,6 @@ volatile int malloc_failure = 0;
  */
 static bool filter_matches(const filter_t *f, const char *path,
                            const struct stat *sb) {
-    /* TODO: Your implementation here */
 
     bool res = false;
 
@@ -136,12 +135,9 @@ static bool filter_matches(const filter_t *f, const char *path,
             if (last_path == NULL){
                 last_path = (char*) path;
             }
-
-            // need to increment because it is up until the /
-            // TDO: might need to fix later
-            // this is the output for .git: ./.git
-            last_path++;
-            // printf("the path is: %s\n", last_path);
+            else{
+                last_path++;
+            }
 
             if (fnmatch(f->filter.pattern, last_path, 0) == 0){
                 res = true;
@@ -250,7 +246,7 @@ static void print_usage(const char *progname) {
 /* ------------------------------------------------------------------ */
 
 /*
- * TODO 2: Implement this function.
+ * Implement this function.
  *
  * Parse a size specifier string into a byte count. The input is the
  * numeric portion (after any leading +/- is stripped by the caller)
@@ -260,7 +256,6 @@ static void print_usage(const char *progname) {
  * Examples: "100c" -> 100, "4k" -> 4096, "2M" -> 2097152, "512" -> 512
  */
 static off_t parse_size(const char *arg) {
-    /* TODO: Your implementation here */
 
     if (arg == NULL){
         // some message
@@ -272,7 +267,6 @@ static off_t parse_size(const char *arg) {
     char* end_ptr;
     off_t res = strtoll(arg, &end_ptr, 10);
 
-    // TODO: check for error here
     if (*end_ptr != '\0' && *end_ptr != 'c' && *end_ptr != 'k' && *end_ptr != 'M'){
         printf("Incorrect usage for parse size argument\n");
         return -1;
@@ -281,17 +275,28 @@ static off_t parse_size(const char *arg) {
     // checking to see if it is a k or M
     if (*end_ptr == 'k'){
         res *= 1024;
+        end_ptr++;
+
     }
     else if (*end_ptr == 'M'){
         res *= 1048576;
-    }
+        end_ptr++;
 
+    }
+    else if (*end_ptr == 'c'){
+        end_ptr++;
+    }
+    
+    if (*end_ptr != '\0'){
+        printf("The argument for -size has an extra letter\n");
+        return -1;
+    }
 
     return res;
 }
 
 /*
- * TODO 3: Implement this function.
+ * Implement this function.
  *
  * Parse command-line arguments into options, paths, and filters.
  * See the usage string and assignment document for the expected format.
@@ -384,12 +389,11 @@ static char **parse_args(int argc, char *argv[], int *npaths) {
                     beginning_filter = false;
                 }
                 
-                // TODO: need to check if the argument exists in order to increment
+                // need to check if the argument exists in order to increment
                 if (strcmp(argv[i], "-name") == 0 && (i+1 < argc)){
 
                     if (argv[i+1][0] != '-'){
                         g_nfilters++;
-                        // printf("incrementing filters count in -name\n");
                     }
                     else{
                         fprintf(stderr, "Incorrect filter usage: %s and %s (back to back)\n", argv[i], argv[i+1]);
@@ -400,8 +404,6 @@ static char **parse_args(int argc, char *argv[], int *npaths) {
 
                     if (argv[i+1][0] != '-'){
                         g_nfilters++;
-                        // printf("incrementing filters count in type\n");
-
                     }
                     else{
                         fprintf(stderr, "Incorrect filter usage: %s and %s (back to back)\n", argv[i], argv[i+1]);
@@ -507,12 +509,10 @@ static char **parse_args(int argc, char *argv[], int *npaths) {
         if (strcmp(kind, "-name") == 0){
             filter_entry.kind = FILTER_NAME;
             filter_entry.filter.pattern = argv[filters_start_idx + (2*filter_idx) + 1];
-            // printf("The pattern is: %s\n", filter_entry.filter.pattern);
         }
         else if (strcmp(kind, "-type") == 0){
             filter_entry.kind = FILTER_TYPE;
             filter_entry.filter.type_char = argv[filters_start_idx + (2*filter_idx) + 1][0];
-            // printf("The type char is: %c\n", filter_entry.filter.type_char);
         }
         else if (strcmp(kind, "-mtime") == 0){
             filter_entry.kind = FILTER_MTIME;
@@ -525,7 +525,6 @@ static char **parse_args(int argc, char *argv[], int *npaths) {
                 exit(1);
             }
             filter_entry.filter.mtime_days = mtime_days;
-            // printf("The mtime days is: %ld\n", mtime_days);
         }
         else if (strcmp(kind, "-size") == 0){
             filter_entry.kind = FILTER_SIZE;
@@ -539,31 +538,43 @@ static char **parse_args(int argc, char *argv[], int *npaths) {
                 memcpy(num, whole_num + 1, num_len - 1);
                 num[num_len-1] = '\0';
 
-                // TODO: need to have a checker for parse_size()
-                filter_entry.filter.size.size_bytes = parse_size(num);
-                // printf("It is greater than and ");
+                off_t size_bytes = parse_size(num);
+                if (size_bytes == -1){
+                    free(g_filters);
+                    free(paths);
+                    exit(1);
+                }
+                filter_entry.filter.size.size_bytes = size_bytes;
             }
             else if (cmp == '-'){
                 filter_entry.filter.size.size_cmp = SIZE_CMP_LESS;
                 memcpy(num, whole_num + 1, num_len - 1);
                 num[num_len-1] = '\0';
-                filter_entry.filter.size.size_bytes = parse_size(num);
-                // printf("It is less than and ");
 
+                off_t size_bytes = parse_size(num);
+                if (size_bytes == -1){
+                    free(g_filters);
+                    free(paths);
+                    exit(1);
+                }
+                filter_entry.filter.size.size_bytes = size_bytes;
             }
             else {
                 filter_entry.filter.size.size_cmp = SIZE_CMP_EXACT;
-                filter_entry.filter.size.size_bytes = parse_size(whole_num);
-                // printf("It is same than and ");
+                off_t size_bytes = parse_size(whole_num);
+                if (size_bytes == -1){
+                    free(g_filters);
+                    free(paths);
+                    exit(1);
+                }
+                filter_entry.filter.size.size_bytes = size_bytes;
             }
-            // printf("the size bytes is %ld\n", filter_entry.filter.size.size_bytes);
         }
         else if (strcmp(kind, "-perm") == 0){
             char* perm_number = argv[filters_start_idx + (2*filter_idx) + 1];
             if (strlen(perm_number) > 4){
                 printf("Incorrect usage of perm number, max 4 digits: %s\n", perm_number);
-                // free(paths);
-                // free(g_filters);
+                free(paths);
                 return NULL;
             }
             filter_entry.kind = FILTER_PERM;
@@ -573,10 +584,9 @@ static char **parse_args(int argc, char *argv[], int *npaths) {
                 free(paths);
                 free(g_filters);
                 perror("endptr is not pointing at '\0'\n for perm");
-                exit(1);
+                exit(1);        // TODO: might need to change
             }
             filter_entry.filter.perm_mode = (mode_t) perm_num;     
-            // printf("the permission is: %d\n", filter_entry.filter.perm_mode);       
         }
 
         g_filters[filter_idx] = filter_entry;
@@ -610,7 +620,7 @@ char** sort_order(char* dir_name, int* path_count){
     struct dirent *dp;
 
     if (((dir = opendir(dir_name)) == NULL)){
-        fprintf(stderr, "bfind: cannot open '%s':", dir_name);
+        fprintf(stderr, "bfind: cannot open '%s':\n", dir_name);
         return NULL;
     }
 
@@ -633,26 +643,40 @@ char** sort_order(char* dir_name, int* path_count){
                 if (temp_array == NULL){
                     perror("There was an error reallocing");
                     malloc_failure = 1;
+                    for (int t = 0; t < *path_count; t++){
+                        free(path_array[t]);
+                    }
                     free(path_array);
                     return NULL;
                 }
                 path_array = temp_array;
             }
              
-            path_array[*path_count] = strdup(dp->d_name);
+            char* d_name = strdup(dp->d_name);
+            if (d_name == NULL){
+                perror("There was an error strduping dp->d_name");
+                for (int d = 0; d < *path_count; d++){
+                    free(path_array[d]);
+                }
+                free(path_array);
+                malloc_failure = 1;
+                return NULL;
+            }
+            path_array[*path_count] = d_name;
             (*path_count)++;
         }
     }
 
-    // am I allowed to use qsort()?
     qsort(path_array, *path_count, sizeof(char*), compare);
-    closedir(dir);
+    if (closedir(dir) == -1){
+        perror("closedir");
+    }
     return path_array;
 }
 
 
 /*
- * TODO 4: Implement this function.
+ * Implement this function.
  *
  * Traverse the filesystem breadth-first starting from the given paths.
  * For each entry, check the filters and print matching paths to stdout.
@@ -675,30 +699,44 @@ char** sort_order(char* dir_name, int* path_count){
  * The provided queue library (queue.h) implements a generic FIFO queue.
  */
 static void bfs_traverse(char **start_paths, int npaths) {
-    /* TODO: Your implementation here */
 
     // NOTE: stat follows a symbolic link while stat does not
     queue_t q;
     queue_init(&q);
+
+    int dev_ino_capacity = 8;
+    int dev_ino_count = 0;
+    dev_ino_t *di = malloc(dev_ino_capacity * sizeof(dev_ino_t));
+    if (di == NULL){
+        queue_destroy(&q);
+        exit(1);
+    }
     
     int i = 0;
     while (i < npaths){
 
         // enqueue the starting directories
         char* start_path = strdup(start_paths[i]);
+        if (start_path == NULL){
+            perror("strdup fail for start_path");
+            free(di);
+            exit(1);
+        }
 
         struct stat sb;
         if (g_follow_links){
             if (stat(start_path, &sb) == -1) {
-                perror("stat");
+                fprintf(stderr, "bfind: cannot open '%s':\n", start_path);
                 free(start_path);
+                i++;
                 continue;
             }
         }
         else{
             if (lstat(start_path, &sb) == -1) {
-                perror("lstat");
+                fprintf(stderr, "bfind: cannot open '%s':\n", start_path);
                 free(start_path);
+                i++;
                 continue;
             }
         }
@@ -709,29 +747,30 @@ static void bfs_traverse(char **start_paths, int npaths) {
             printf("%s\n", start_path);
         }
         
-        // queue entry info needed
-        queue_entry_t* start_entry = malloc(sizeof(queue_entry_t));
-        if (start_entry == NULL){
-            // TODO: check for NULL
-            free(start_path);
-            queue_destroy(&q);
-            exit(1);
-        }
+        // if (S_ISDIR(sb.st_mode)){
+            // queue entry info needed
+            queue_entry_t* start_entry = malloc(sizeof(queue_entry_t));
+            if (start_entry == NULL){
+                free(start_path);
+                queue_destroy(&q);
+                free(di);
+                exit(1);
+            }
 
-        start_entry->path = start_path;
-        start_entry->start_dev = sb.st_dev;
+            start_entry->path = start_path;
+            start_entry->start_dev = sb.st_dev;
 
-        // changed the logic to enqueue a queue entry
-        // TODO: might need to free here
-        int res_q = queue_enqueue(&q,start_entry);
-        if (res_q == -1){
-            printf("error\n");
-            queue_destroy(&q);
-            free(start_path);
-            free(start_entry->path);
-            free(start_entry);
-            exit(1);
-        }
+            // changed the logic to enqueue a queue entry
+            int res_q = queue_enqueue(&q,start_entry);
+            if (res_q == -1){
+                printf("error\n");
+                queue_destroy(&q);
+                free(start_path);
+                free(start_entry);
+                free(di);
+                exit(1);
+            }
+
         i++;
     }
 
@@ -739,6 +778,79 @@ static void bfs_traverse(char **start_paths, int npaths) {
     while (!queue_is_empty(&q)){
 
         queue_entry_t* curr_entry = (queue_entry_t*) queue_dequeue(&q);
+
+        struct stat curr_sa = {0};
+        if (lstat(curr_entry->path, &curr_sa) == -1){
+            perror("lstat for curr_sa");
+            free(curr_entry->path);
+            free(curr_entry);
+            continue;
+        }
+
+        if (S_ISLNK(curr_sa.st_mode)){
+
+            bool not_seen_sa = true;
+            for (int d = 0; d < dev_ino_count; d++){
+
+                // if it already in array
+                if (curr_sa.st_ino == di[d].ino && curr_sa.st_dev == di[d].dev){
+                    not_seen_sa = false;
+                    break;
+                }
+            }
+
+            if (!not_seen_sa){
+                free(curr_entry->path);
+                free(curr_entry);
+                continue;
+            }
+            else {
+
+                // if you reach capacity, realloc
+                if ((dev_ino_count + 1) >= dev_ino_capacity){
+                    dev_ino_capacity *= 2;
+                    dev_ino_t *temp_di = realloc(di, dev_ino_capacity * sizeof(dev_ino_t));
+                    if (temp_di == NULL){
+                        perror("There was an error reallocing");
+                        free(di);
+                        queue_destroy(&q);
+                        free(curr_entry->path);
+                        free(curr_entry);
+                        exit(1);
+                    }
+                    di = temp_di;
+                }
+
+                dev_ino_t curr_di = {0};
+                curr_di.dev = curr_sa.st_dev;
+                curr_di.ino = curr_sa.st_ino;
+                di[dev_ino_count] = curr_di;
+                dev_ino_count++;
+            }
+        }
+
+        if (S_ISDIR(curr_sa.st_mode)){
+
+            if ((dev_ino_count + 1) >= dev_ino_capacity){
+                dev_ino_capacity *= 2;
+                dev_ino_t *temp_di = realloc(di, dev_ino_capacity * sizeof(dev_ino_t));
+                if (temp_di == NULL){
+                    perror("There was an error reallocing");
+                    free(di);
+                    queue_destroy(&q);
+                    free(curr_entry->path);
+                    free(curr_entry);
+                    exit(1);
+                }
+                di = temp_di;
+            }
+
+            dev_ino_t curr_di = {0};
+            curr_di.dev = curr_sa.st_dev;
+            curr_di.ino = curr_sa.st_ino;
+            di[dev_ino_count] = curr_di;
+            dev_ino_count++;
+        }
 
         int path_count = 0;
         char** ordered_paths = sort_order(curr_entry->path, &path_count);
@@ -748,6 +860,7 @@ static void bfs_traverse(char **start_paths, int npaths) {
                 queue_destroy(&q);
                 free(curr_entry->path);
                 free(curr_entry);
+                free(di);
                 malloc_failure = 0;
                 exit(1);
             }
@@ -775,9 +888,11 @@ static void bfs_traverse(char **start_paths, int npaths) {
                 queue_destroy(&q);
                 free(curr_entry->path);
                 free(curr_entry);
-                for (int j = 0; j < path_count; j++){
+                free(di);
+                for (int j = i; j < path_count; j++){
                     free(ordered_paths[j]);
                 }
+                free(ordered_paths); 
                 perror("There was an error on strdup");
                 exit(1);
             }             
@@ -794,6 +909,7 @@ static void bfs_traverse(char **start_paths, int npaths) {
                 if (lstat(path_dup, &sb) == -1) {
                     perror("lstat");
                     free(path_dup);
+                    free(ordered_paths[i]);
                     continue;
                 }
             }
@@ -815,41 +931,81 @@ static void bfs_traverse(char **start_paths, int npaths) {
                             free(curr_entry->path);
                             free(curr_entry);
                             free(path_dup);
+                            for (int j = i; j < path_count; j++){
+                                free(ordered_paths[j]);
+                            }
                             free(ordered_paths);
+                            free(di);
                             perror("There was an error mallocing q_entry for gdev case");
                             exit(1);
                         }
                         q_entry->path = path_dup;
                         q_entry->start_dev = curr_entry->start_dev;
-                        queue_enqueue(&q, q_entry);
+
+                        if (queue_enqueue(&q, q_entry) == -1){
+                            free(curr_entry->path);
+                            free(curr_entry);
+                            free(q_entry->path);
+                            free(q_entry);
+                            for (int j = i; j < path_count; j++){
+                                free(ordered_paths[j]);
+                            }
+                            free(ordered_paths);
+                            free(di);
+                            queue_destroy(&q);
+                            perror("There was an error enqueuing");
+                            exit(1);
+                        }
+                    }
+                    else{
+                        free(path_dup);
                     }
                 }
                 else{
+
                     queue_entry_t* q_entry = malloc(sizeof(queue_entry_t));
                     if (q_entry == NULL){
                         queue_destroy(&q);
                         free(curr_entry->path);
                         free(curr_entry);
                         free(path_dup);
+                        for (int j = i; j < path_count; j++){
+                            free(ordered_paths[j]);
+                        }
                         free(ordered_paths);
+                        free(di);
                         perror("There was an error mallocing q_entry for non-gdev case");
                         exit(1);
                     }
                     q_entry->path = path_dup;
                     q_entry->start_dev = curr_entry->start_dev;
-                    queue_enqueue(&q, q_entry);
+
+                    if (queue_enqueue(&q, q_entry) == -1){
+                        free(curr_entry->path);
+                        free(curr_entry);
+                        free(q_entry->path);
+                        free(q_entry);
+                        for (int j = i; j < path_count; j++){
+                            free(ordered_paths[j]);
+                        }
+                        free(ordered_paths);
+                        free(di);
+                        queue_destroy(&q);
+                        perror("There was an error enqueuing");
+                        exit(1);
+                    }
                 }
             }
             else{
                 free(path_dup);
             }
             free(ordered_paths[i]);
-            ordered_paths[i] = NULL;
         }
-        free(curr_entry ->path);
+        free(curr_entry->path);
         free(curr_entry);       
         free(ordered_paths);
     }
+    free(di);
     queue_destroy(&q);
 }
 
@@ -862,10 +1018,12 @@ int main(int argc, char *argv[]) {
 
     int npaths;
     char** paths = parse_args(argc, argv, &npaths);
-
-    bfs_traverse(paths, npaths);
     
-    free(paths);
+    if (paths != NULL){
+        bfs_traverse(paths, npaths); 
+        free(paths);
+    }
+
     free(g_filters);
     return 0;
 }
