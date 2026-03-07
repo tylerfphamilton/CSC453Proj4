@@ -87,7 +87,6 @@ static filter_t *g_filters = NULL;
 static int g_nfilters = 0;
 static bool g_follow_links = false;
 static bool g_xdev = false;
-static dev_t g_start_dev = 0;
 static time_t g_now;
 
 /* ------------------------------------------------------------------ */
@@ -194,7 +193,7 @@ static bool filter_matches(const filter_t *f, const char *path,
         {
             // printf("the perm is in filter %o and in sb->st_mode: %o\n", f->filter.perm_mode, (sb->st_mode & 0777));
 
-            if (f->filter.perm_mode == (sb->st_mode & 0777)){
+            if (f->filter.perm_mode == (sb->st_mode & 07777)){
                 res = true;
             }
             break;
@@ -353,7 +352,6 @@ static char **parse_args(int argc, char *argv[], int *npaths) {
                             i--;
                         }
                         else {
-                            // printf("Incorrect usage: %s\n: ", argv[i]);
                             fprintf(stderr, "Incorrect usage: %s\n: ", argv[i]);
                             exit(1);
                         }
@@ -620,7 +618,7 @@ char** sort_order(char* dir_name, int* path_count){
     struct dirent *dp;
 
     if (((dir = opendir(dir_name)) == NULL)){
-        fprintf(stderr, "bfind: cannot open '%s':\n", dir_name);
+        fprintf(stderr, "bfind: cannot open '%s': %s\n", dir_name, strerror(errno));
         return NULL;
     }
 
@@ -726,7 +724,7 @@ static void bfs_traverse(char **start_paths, int npaths) {
         struct stat sb;
         if (g_follow_links){
             if (stat(start_path, &sb) == -1) {
-                fprintf(stderr, "bfind: cannot open '%s':\n", start_path);
+                fprintf(stderr, "bfind: cannot open '%s': %s\n", start_path, strerror(errno));
                 free(start_path);
                 i++;
                 continue;
@@ -734,7 +732,7 @@ static void bfs_traverse(char **start_paths, int npaths) {
         }
         else{
             if (lstat(start_path, &sb) == -1) {
-                fprintf(stderr, "bfind: cannot open '%s':\n", start_path);
+                fprintf(stderr, "bfind: cannot open '%s': %s\n", start_path, strerror(errno));
                 free(start_path);
                 i++;
                 continue;
