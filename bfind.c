@@ -584,9 +584,8 @@ static char **parse_args(int argc, char *argv[], int *npaths) {
             char* perm_number = argv[filters_start_idx + (2*filter_idx) + 1];
 
             // edge case for perm num
-            // TODO: ask schmitt if one, two, or three numbers are given
-            if (strlen(perm_number) > 4){
-                printf("Incorrect usage of perm number, max 4 digits: %s\n", perm_number);
+            if (strlen(perm_number) != 4){
+                printf("Incorrect usage of perm number, not 4 digits: %s\n", perm_number);
                 free(paths);
                 return NULL;
             }
