@@ -124,11 +124,12 @@ static bool filter_matches(const filter_t *f, const char *path,
 
     bool res = false;
 
+    // checking to see which filter we are looking at
     switch (f->kind){
 
         case FILTER_NAME:
         {
-            // uses fnmatch
+            // getting the filter name entry
             const char* last_path = strrchr(path, '/');
 
             if (last_path == NULL){
@@ -138,6 +139,7 @@ static bool filter_matches(const filter_t *f, const char *path,
                 last_path++;
             }
 
+            // if the pattern and path match, the result is true
             if (fnmatch(f->filter.pattern, last_path, 0) == 0){
                 res = true;
             }
@@ -146,6 +148,7 @@ static bool filter_matches(const filter_t *f, const char *path,
 
         case FILTER_TYPE:
         {           
+            // checking the type_char with the corresponding type
             if (f->filter.type_char == 'f' && S_ISREG(sb->st_mode)){
                 res = true;
             }
@@ -163,9 +166,8 @@ static bool filter_matches(const filter_t *f, const char *path,
             // have to use g_now;
             double time_diff = difftime(g_now, sb->st_mtim.tv_sec);
             time_diff /= 86400;
-            // printf("the time diff is %f\n", time_diff);
 
-            // need to handle logic correctly now:
+            // if the time is less than or equal to the input
             int time_days = (int) time_diff;
             if (time_days <= f->filter.mtime_days){
                 res = true;
@@ -178,6 +180,7 @@ static bool filter_matches(const filter_t *f, const char *path,
             off_t f_size = f->filter.size.size_bytes;
             size_cmp_t f_cmp = f->filter.size.size_cmp;
 
+            // checking the cmp and making sure the sizes correspond correctly
             if (f_cmp == SIZE_CMP_GREATER && sb->st_size > f_size){
                 res = true;       
             }
@@ -191,8 +194,8 @@ static bool filter_matches(const filter_t *f, const char *path,
         }        
         case FILTER_PERM:
         {
-            // printf("the perm is in filter %o and in sb->st_mode: %o\n", f->filter.perm_mode, (sb->st_mode & 0777));
 
+            // checking the perm
             if (f->filter.perm_mode == (sb->st_mode & 07777)){
                 res = true;
             }
@@ -256,6 +259,7 @@ static void print_usage(const char *progname) {
  */
 static off_t parse_size(const char *arg) {
 
+    // check for NULL - might be able to get rid of
     if (arg == NULL){
         // some message
         printf("The arg is NULL in parse_size\n");
@@ -266,16 +270,16 @@ static off_t parse_size(const char *arg) {
     char* end_ptr;
     off_t res = strtoll(arg, &end_ptr, 10);
 
+    // checking edge casee
     if (*end_ptr != '\0' && *end_ptr != 'c' && *end_ptr != 'k' && *end_ptr != 'M'){
         printf("Incorrect usage for parse size argument\n");
         return -1;
     }
 
-    // checking to see if it is a k or M
+    // checking to see if it is a k, M, or c
     if (*end_ptr == 'k'){
         res *= 1024;
         end_ptr++;
-
     }
     else if (*end_ptr == 'M'){
         res *= 1048576;
@@ -286,6 +290,7 @@ static off_t parse_size(const char *arg) {
         end_ptr++;
     }
     
+    // if the last argument isn't pointing at the NULL terminating char, there is an extra character, so print an error and return -1
     if (*end_ptr != '\0'){
         printf("The argument for -size has an extra letter\n");
         return -1;
@@ -309,11 +314,13 @@ static off_t parse_size(const char *arg) {
  */
 static char **parse_args(int argc, char *argv[], int *npaths) {
 
+    // vars for path
     bool beginning_path = true;
     int paths_start_idx = 0;
     int paths_count = 0;
     bool default_path = false;
 
+    // vars for filter
     bool beginning_filter = true;
     int filters_start_idx = 0;
     bool size_flag = false;
@@ -328,8 +335,10 @@ static char **parse_args(int argc, char *argv[], int *npaths) {
             // parsing the options to see if the -L or -xdev flag is being used
             case OPTIONS:
             
+                // checking to see if the first index is a -
                 if (argv[i][0] == '-'){
 
+                    // checking the whole string and matching it to the correct options
                     if (strcmp(argv[i],"-L") == 0){
                         g_follow_links = true;
                     }
@@ -337,12 +346,11 @@ static char **parse_args(int argc, char *argv[], int *npaths) {
                         g_xdev = true;
                     }
                     else {
-                        // printf("Incorrect usage: %s\n", argv[i]);
                         if (strcmp(argv[i], "--help") == 0){
                             print_usage(argv[0]);
                             exit(0);
                         }
-                        // need to exit if it's not valid
+                        // checking to see if it is a filter, else need to exit if it's not valid
                         else if (strcmp(argv[i], "-name") == 0 || strcmp(argv[i], "-type") == 0 || strcmp(argv[i], "-mtime") == 0 || strcmp(argv[i], "-size") == 0 || strcmp(argv[i], "-perm") == 0){
                             if (paths_count == 0){
                                 paths_count = 1;
@@ -358,6 +366,7 @@ static char **parse_args(int argc, char *argv[], int *npaths) {
                     }
                 }
                 else{
+                    // if there are no options, move to the paths phase
                     phase = PATHS;
                     i--;
                 }
@@ -365,13 +374,13 @@ static char **parse_args(int argc, char *argv[], int *npaths) {
 
             case PATHS:
 
+                // checking the paths and making sure one is give and not a filter
                 if (argv[i][0] != '-'){
 
                     if (beginning_path){
                         paths_start_idx = i;
                         beginning_path = false;
                     }
-
                     paths_count++;
                 }
                 else{
@@ -382,12 +391,13 @@ static char **parse_args(int argc, char *argv[], int *npaths) {
             
             case FILTERS:
 
+                // checking flag for beginning of filter
                 if (beginning_filter){
                     filters_start_idx = i;
                     beginning_filter = false;
                 }
                 
-                // need to check if the argument exists in order to increment
+                // need to check if the argument exists in order to increment, printing an error if there is an issue with the filters
                 if (strcmp(argv[i], "-name") == 0 && (i+1 < argc)){
 
                     if (argv[i+1][0] != '-'){
@@ -412,8 +422,6 @@ static char **parse_args(int argc, char *argv[], int *npaths) {
                     
                     if (argv[i+1][0] != '-'){
                         g_nfilters++;
-                        // printf("incrementing filters count in -mtime\n");
-
                     }
                     else{
                         fprintf(stderr, "Incorrect filter usage: %s and %s (back to back)\n", argv[i], argv[i+1]);
@@ -422,10 +430,10 @@ static char **parse_args(int argc, char *argv[], int *npaths) {
                 }
                 else if (strcmp(argv[i], "-size") == 0 && (i+1 < argc)){
 
-                    // TODO: make a comment here
+                    // edge case for -size -x where x is some number
                     if (argv[i+1][0] == '-'){
 
-                        // now we know the next has to be a number, so I am checking the ascii value
+                        // now we know the next has to be a number, so I am checking the ascii value to make sure it is 0-9
                         int ascii_value = (int) argv[i+1][1];
                         if (ascii_value >= 48 && ascii_value < 58){
                             size_flag = true;
@@ -436,7 +444,6 @@ static char **parse_args(int argc, char *argv[], int *npaths) {
                             exit(1);
                         }
                         else {
-                            // printf("incrementing filters count in -size\n");
                             g_nfilters++;
                         }
                     }
@@ -448,8 +455,6 @@ static char **parse_args(int argc, char *argv[], int *npaths) {
                     
                     if (argv[i+1][0] != '-'){
                         g_nfilters++;
-                        // printf("incrementing filters count in -perm\n");
-
                     }
                     else{
                         fprintf(stderr, "Incorrect filter usage: %s and %s (back to back)\n: ", argv[i], argv[i+1]);
@@ -465,11 +470,13 @@ static char **parse_args(int argc, char *argv[], int *npaths) {
         i++;
     }
     
+    // if the paths count is 0, set the flag to use the default flag and change the count to 1
     if (paths_count == 0){
         paths_count = 1;
         default_path = true;
     }
 
+    // mallocing for paths and checking for malloc failure
     char **paths = malloc(paths_count * sizeof(char*));
     if (paths == NULL){
         perror("There was an error with malloc when allocating for paths");
@@ -482,12 +489,13 @@ static char **parse_args(int argc, char *argv[], int *npaths) {
         paths[0]= ".";
     }
     else {
+        // writing the paths into the path array
         for (int p = 0; p < paths_count; p++){
             paths[p] = argv[paths_start_idx + p];
         }
     }
 
-    // still need code for filter here
+    // checking the filtler length and only mallocing when there is at least one filter and checking the return type of malloc
     if (g_nfilters != 0){
 
         g_filters = malloc(g_nfilters * sizeof(filter_t));
@@ -498,12 +506,15 @@ static char **parse_args(int argc, char *argv[], int *npaths) {
         }
     }
 
+    // iterating on all the filters
     int filter_idx = 0;
     while (filter_idx < g_nfilters){
 
         // stores the first instance of 
         filter_t filter_entry;
         char* kind = argv[filters_start_idx + (2*filter_idx)];
+
+        // checking the filter types with the command line input
         if (strcmp(kind, "-name") == 0){
             filter_entry.kind = FILTER_NAME;
             filter_entry.filter.pattern = argv[filters_start_idx + (2*filter_idx) + 1];
@@ -530,6 +541,7 @@ static char **parse_args(int argc, char *argv[], int *npaths) {
             int num_len = strlen(whole_num);
             char num[num_len];
             
+            // checking the sign for -size
             char cmp = argv[filters_start_idx + (2*filter_idx) + 1][0];
             if (cmp == '+'){
                 filter_entry.filter.size.size_cmp = SIZE_CMP_GREATER;
@@ -570,6 +582,9 @@ static char **parse_args(int argc, char *argv[], int *npaths) {
         }
         else if (strcmp(kind, "-perm") == 0){
             char* perm_number = argv[filters_start_idx + (2*filter_idx) + 1];
+
+            // edge case for perm num
+            // TODO: ask schmitt if one, two, or three numbers are given
             if (strlen(perm_number) > 4){
                 printf("Incorrect usage of perm number, max 4 digits: %s\n", perm_number);
                 free(paths);
@@ -582,11 +597,12 @@ static char **parse_args(int argc, char *argv[], int *npaths) {
                 free(paths);
                 free(g_filters);
                 perror("endptr is not pointing at '\0'\n for perm");
-                exit(1);        // TODO: might need to change
+                exit(1);    
             }
             filter_entry.filter.perm_mode = (mode_t) perm_num;     
         }
 
+        // assigning the filter entry into the filter array and incrementing the iteration idx
         g_filters[filter_idx] = filter_entry;
         filter_idx++;
     }
@@ -612,17 +628,18 @@ int compare(const void* name1, const void* name2){
 // helper function for actually reordering
 char** sort_order(char* dir_name, int* path_count){
 
-    // maybe need a NULL check for dir?
+    // initial arguments, set cap to 8 and will resize later
     int capacity = 8;
     DIR* dir;
     struct dirent *dp;
 
+    // if there was an error opening the directory
     if (((dir = opendir(dir_name)) == NULL)){
         fprintf(stderr, "bfind: cannot open '%s': %s\n", dir_name, strerror(errno));
         return NULL;
     }
 
-    // was thinking that a queue could work, but it doesn't work with 
+    // was thinking that a queue could work, but it doesn't work with dynamic array
     char** path_array = malloc(capacity * sizeof(char*));
     if (path_array == NULL){
         perror("there was an error mallocing in the helper function");
@@ -630,6 +647,7 @@ char** sort_order(char* dir_name, int* path_count){
         return NULL;
     }
 
+    // iterating until there are no more entries in the curr directory
     while ((dp = readdir(dir)) != NULL){
 
         if ((strcmp(dp->d_name,".") != 0)  && (strcmp(dp->d_name,"..") != 0)){
@@ -649,7 +667,8 @@ char** sort_order(char* dir_name, int* path_count){
                 }
                 path_array = temp_array;
             }
-             
+            
+            // strduping and checking for error
             char* d_name = strdup(dp->d_name);
             if (d_name == NULL){
                 perror("There was an error strduping dp->d_name");
@@ -660,11 +679,14 @@ char** sort_order(char* dir_name, int* path_count){
                 malloc_failure = 1;
                 return NULL;
             }
+
+            // assigning the directory entry to the path_array
             path_array[*path_count] = d_name;
             (*path_count)++;
         }
     }
 
+    // I saw later in the directions that I didn't need to sort, but I was 80% of the way done and decided to keep it
     qsort(path_array, *path_count, sizeof(char*), compare);
     if (closedir(dir) == -1){
         perror("closedir");
@@ -698,10 +720,11 @@ char** sort_order(char* dir_name, int* path_count){
  */
 static void bfs_traverse(char **start_paths, int npaths) {
 
-    // NOTE: stat follows a symbolic link while stat does not
+    // q init
     queue_t q;
     queue_init(&q);
 
+    // vars for dev_ino
     int dev_ino_capacity = 8;
     int dev_ino_count = 0;
     dev_ino_t *di = malloc(dev_ino_capacity * sizeof(dev_ino_t));
@@ -710,6 +733,7 @@ static void bfs_traverse(char **start_paths, int npaths) {
         exit(1);
     }
     
+    // iterating on the start paths from the command line argument
     int i = 0;
     while (i < npaths){
 
@@ -721,6 +745,7 @@ static void bfs_traverse(char **start_paths, int npaths) {
             exit(1);
         }
 
+        // checking for symlink
         struct stat sb;
         if (g_follow_links){
             if (stat(start_path, &sb) == -1) {
@@ -745,38 +770,40 @@ static void bfs_traverse(char **start_paths, int npaths) {
             printf("%s\n", start_path);
         }
         
-        // if (S_ISDIR(sb.st_mode)){
-            // queue entry info needed
-            queue_entry_t* start_entry = malloc(sizeof(queue_entry_t));
-            if (start_entry == NULL){
-                free(start_path);
-                queue_destroy(&q);
-                free(di);
-                exit(1);
-            }
+        // queue entry info needed
+        queue_entry_t* start_entry = malloc(sizeof(queue_entry_t));
+        if (start_entry == NULL){
+            free(start_path);
+            queue_destroy(&q);
+            free(di);
+            exit(1);
+        }
 
-            start_entry->path = start_path;
-            start_entry->start_dev = sb.st_dev;
+        // assigning info for entry
+        start_entry->path = start_path;
+        start_entry->start_dev = sb.st_dev;
 
-            // changed the logic to enqueue a queue entry
-            int res_q = queue_enqueue(&q,start_entry);
-            if (res_q == -1){
-                printf("error\n");
-                queue_destroy(&q);
-                free(start_path);
-                free(start_entry);
-                free(di);
-                exit(1);
-            }
+        // checking for enqueue error
+        int res_q = queue_enqueue(&q,start_entry);
+        if (res_q == -1){
+            printf("error\n");
+            queue_destroy(&q);
+            free(start_path);
+            free(start_entry);
+            free(di);
+            exit(1);
+        }
 
         i++;
     }
 
-
+    // iterating until the queue is empty
     while (!queue_is_empty(&q)){
 
+        // getting the curr queue entry
         queue_entry_t* curr_entry = (queue_entry_t*) queue_dequeue(&q);
 
+        // stat-ing the curr_entry
         struct stat curr_sa = {0};
         if (lstat(curr_entry->path, &curr_sa) == -1){
             perror("lstat for curr_sa");
@@ -785,8 +812,10 @@ static void bfs_traverse(char **start_paths, int npaths) {
             continue;
         }
 
+        // checking the mode to see if it is a symlink
         if (S_ISLNK(curr_sa.st_mode)){
 
+            // creating a flag for seeing whether the link is already in the di array 
             bool not_seen_sa = true;
             for (int d = 0; d < dev_ino_count; d++){
 
@@ -797,6 +826,7 @@ static void bfs_traverse(char **start_paths, int npaths) {
                 }
             }
 
+            // checking the flag, if it was seen free allocated memory and continue
             if (!not_seen_sa){
                 free(curr_entry->path);
                 free(curr_entry);
@@ -819,6 +849,7 @@ static void bfs_traverse(char **start_paths, int npaths) {
                     di = temp_di;
                 }
 
+                // assigning the current directory entry into the di array
                 dev_ino_t curr_di = {0};
                 curr_di.dev = curr_sa.st_dev;
                 curr_di.ino = curr_sa.st_ino;
@@ -827,8 +858,10 @@ static void bfs_traverse(char **start_paths, int npaths) {
             }
         }
 
+        // checking to see if it is a directory, if it is, want to enqueue it
         if (S_ISDIR(curr_sa.st_mode)){
 
+            // checking the size
             if ((dev_ino_count + 1) >= dev_ino_capacity){
                 dev_ino_capacity *= 2;
                 dev_ino_t *temp_di = realloc(di, dev_ino_capacity * sizeof(dev_ino_t));
@@ -843,6 +876,7 @@ static void bfs_traverse(char **start_paths, int npaths) {
                 di = temp_di;
             }
 
+            // assigning the current directory entry into the di array
             dev_ino_t curr_di = {0};
             curr_di.dev = curr_sa.st_dev;
             curr_di.ino = curr_sa.st_ino;
@@ -850,10 +884,12 @@ static void bfs_traverse(char **start_paths, int npaths) {
             dev_ino_count++;
         }
 
+        // getting the paths for the current directory
         int path_count = 0;
         char** ordered_paths = sort_order(curr_entry->path, &path_count);
-        if (ordered_paths == NULL){
 
+        // checking for error
+        if (ordered_paths == NULL){
             if (malloc_failure == 1){
                 queue_destroy(&q);
                 free(curr_entry->path);
@@ -895,6 +931,7 @@ static void bfs_traverse(char **start_paths, int npaths) {
                 exit(1);
             }             
 
+            // getting the stat info
             struct stat sb;
             if (g_follow_links){
                 if (stat(path_dup, &sb) == -1) {
@@ -923,6 +960,8 @@ static void bfs_traverse(char **start_paths, int npaths) {
                 if (g_xdev){
 
                     if (curr_entry->start_dev == sb.st_dev){
+
+                        // mallocing and checking for malloc failure
                         queue_entry_t *q_entry = malloc(sizeof(queue_entry_t));
                         if (q_entry == NULL){
                             queue_destroy(&q);
@@ -937,9 +976,12 @@ static void bfs_traverse(char **start_paths, int npaths) {
                             perror("There was an error mallocing q_entry for gdev case");
                             exit(1);
                         }
+
+                        // assigning info to the queue entry struct
                         q_entry->path = path_dup;
                         q_entry->start_dev = curr_entry->start_dev;
 
+                        // checking return of queue info and freeing where needed
                         if (queue_enqueue(&q, q_entry) == -1){
                             free(curr_entry->path);
                             free(curr_entry);
@@ -961,6 +1003,7 @@ static void bfs_traverse(char **start_paths, int npaths) {
                 }
                 else{
 
+                    // mallocing and checking for malloc failure
                     queue_entry_t* q_entry = malloc(sizeof(queue_entry_t));
                     if (q_entry == NULL){
                         queue_destroy(&q);
@@ -975,9 +1018,12 @@ static void bfs_traverse(char **start_paths, int npaths) {
                         perror("There was an error mallocing q_entry for non-gdev case");
                         exit(1);
                     }
+
+                    // assigning info to the queue entry struct
                     q_entry->path = path_dup;
                     q_entry->start_dev = curr_entry->start_dev;
 
+                    // checking return of queue info and freeing where needed
                     if (queue_enqueue(&q, q_entry) == -1){
                         free(curr_entry->path);
                         free(curr_entry);
@@ -1017,6 +1063,7 @@ int main(int argc, char *argv[]) {
     int npaths;
     char** paths = parse_args(argc, argv, &npaths);
     
+    // only iterating on valid paths
     if (paths != NULL){
         bfs_traverse(paths, npaths); 
         free(paths);
